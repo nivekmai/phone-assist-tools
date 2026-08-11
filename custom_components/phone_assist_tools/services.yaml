@@ -1,0 +1,27 @@
+acknowledge:
+  name: Acknowledge phone tool request
+  description: >-
+    Internal acknowledgement sent by the matching experimental Android
+    Companion app after it attempts a local Clock intent.
+  fields:
+    request_id:
+      name: Request ID
+      description: The phone_tool_request_id received with the command.
+      required: true
+      example: 01K1B4J8J0KFM3Q1ZVKF7DV4QW
+      selector:
+        text:
+    success:
+      name: Success
+      description: Whether the Android Clock intent was dispatched successfully.
+      required: true
+      selector:
+        boolean:
+    error:
+      name: Error
+      description: Optional failure detail when success is false.
+      required: false
+      example: No application can handle the Clock intent
+      selector:
+        text:
+          multiline: true
