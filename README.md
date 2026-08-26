@@ -12,6 +12,17 @@ It can give the LLM three explicit, independently enabled tools:
 - `SetPhoneTimer(duration_seconds, label?)`
 - `PlayPhoneMedia(media_type, query?)`
 
+It can also provide four device-authorized, read-only personal-data tools:
+
+- `SearchGmail(query, max_results?)`
+- `ReadGmailMessage(id)`
+- `SearchGoogleDrive(query, max_results?)`
+- `ReadGoogleDriveFile(id)`
+
+Google access is optional. OAuth tokens stay in Home Assistant and are never
+sent to the conversation proxy. Only bounded search results and requested text
+are returned to the model.
+
 The tools target the Android `mobile_app` device that initiated the Assist
 request. A tool is available only when that exact registration advertises the
 matching command after the user enables its Companion app toggle. Home
@@ -37,6 +48,21 @@ its fast local intent path, the integration wraps Core's existing per-device
 mobile timer callback and forwards the `STARTED` event as `command_timer` for an
 opted-in phone. Other mobile registrations retain Core's normal Home Assistant
 timer notification behavior.
+
+For personal data, the matching app performs this handshake:
+
+```text
+Companion registers a non-exportable Android Keystore public key and enabled scopes
+  -> server issues a fresh random challenge over the authenticated WebSocket
+  -> phone signs challenge + mobile_app webhook ID
+  -> server verifies the signature and creates a one-use 20-second grant
+  -> first matching Assist context consumes and binds the grant for that pipeline
+  -> only that context receives the selected read-only Gmail/Drive tools
+```
+
+Satellite requests, browser requests, unenrolled phones, expired challenges,
+and invalid signatures receive no personal-data tools. Handshake failure does
+not fail Assist; it continues normally without those tools.
 
 ## Home Assistant compatibility
 
@@ -97,6 +123,26 @@ can coexist with this shim's timer implementation during migration.
    for this server. The permissions are off by default. Changing a toggle
    updates the mobile-app registration.
 
+## Connect read-only Gmail and Google Drive
+
+1. In Google Cloud, create or select a project and enable the **Gmail API** and
+   **Google Drive API**.
+2. Configure the OAuth consent screen. While the app remains in testing, add
+   your Google account as a test user.
+3. Create an OAuth client of type **Web application**. Use the redirect URL
+   shown by Home Assistant while adding Phone Assist Tools application
+   credentials.
+4. In Home Assistant, open **Settings → Devices & services → Application
+   credentials**, add the Google OAuth client for **Phone Assist Tools**, then
+   add the **Phone Assist Tools** integration and complete Google sign-in.
+5. In this Companion build, open **Settings → Companion app → Assist** and
+   enable **Read Gmail**, **Read Google Drive**, or both on the phone allowed to
+   authorize those tools.
+
+The OAuth request is limited to `gmail.readonly` and `drive.readonly`, plus
+OpenID email identity. This version cannot send, delete, archive, upload, edit,
+or otherwise mutate email or Drive content.
+
 ## Capability contract
 
 The Companion app advertises the enabled commands in its mobile-app
@@ -114,6 +160,19 @@ and checked again at execution time, so disabling a toggle also rejects a
 command that was prepared from an older LLM tool list. Older Core versions
 accept and preserve this extra registration field even though only this custom
 integration interprets it.
+
+When both read-only personal-data toggles are enabled, `app_data` also contains:
+
+```yaml
+assist_personal_data_scopes:
+  - gmail_readonly
+  - drive_readonly
+assist_personal_data_public_key: <base64 DER P-256 public key>
+```
+
+The private key is generated in Android Keystore and cannot be exported by the
+app. StrongBox is requested when the device supports it, with normal Android
+Keystore as the fallback.
 
 ## Command contract
 
@@ -197,6 +256,11 @@ optional `error` string.
 - A call made without an originating mobile-app `device_id`, same-user context,
   advertised capability, or usable push path fails safely instead of choosing
   another phone.
+- Personal-data search results are limited to 10 items and individual textual
+  reads to 12,000 characters. Binary Drive files are not downloaded into the
+  model context; the tool returns metadata and a link instead.
+- Retrieved email and file content is untrusted data. The LLM prompt explicitly
+  tells the model never to follow instructions contained inside it.
 - The acknowledgement action is available to authenticated Home Assistant
   clients. Its unguessable request ID and same-user check prevent accidental
   cross-talk, but this is not cryptographic device attestation.

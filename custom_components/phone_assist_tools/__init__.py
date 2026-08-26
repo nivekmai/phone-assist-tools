@@ -5,12 +5,19 @@ from __future__ import annotations
 import logging
 
 import voluptuous as vol
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import Event, HomeAssistant, ServiceCall, callback
+from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers import config_entry_oauth2_flow, intent
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers import intent
 from homeassistant.helpers.typing import ConfigType
 
+from .authorization import (
+    DATA_AUTHORIZER,
+    PersonalDataAuthorizer,
+    async_setup_websocket_api,
+)
 from .const import (
     ATTR_ERROR,
     ATTR_REQUEST_ID,
@@ -28,8 +35,13 @@ from .coordinator import (
     PhoneAssistToolsRuntime,
     native_mobile_app_commands,
 )
+from .google_api import DATA_GOOGLE_CLIENT, GoogleReadOnlyClient
 from .intents import (
     PlayPhoneMediaIntentHandler,
+    ReadGmailMessageIntentHandler,
+    ReadGoogleDriveFileIntentHandler,
+    SearchGmailIntentHandler,
+    SearchGoogleDriveIntentHandler,
     SetPhoneAlarmIntentHandler,
     SetPhoneTimerIntentHandler,
 )
@@ -54,6 +66,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up YAML-loaded phone tools, acknowledgement service, and 2026.7 intents."""
     runtime = PhoneAssistToolsRuntime()
     hass.data[DATA_RUNTIME] = runtime
+    authorizer = PersonalDataAuthorizer()
+    hass.data[DATA_AUTHORIZER] = authorizer
+    async_setup_websocket_api(hass, authorizer)
 
     @callback
     def async_handle_acknowledgement(call: ServiceCall) -> None:
@@ -84,6 +99,13 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         intent.async_register(hass, SetPhoneTimerIntentHandler())
     if COMMAND_PLAY_MEDIA not in native_commands:
         intent.async_register(hass, PlayPhoneMediaIntentHandler())
+    for personal_handler in (
+        SearchGmailIntentHandler(),
+        ReadGmailMessageIntentHandler(),
+        SearchGoogleDriveIntentHandler(),
+        ReadGoogleDriveFileIntentHandler(),
+    ):
+        intent.async_register(hass, personal_handler)
     if COMMAND_TIMER not in native_commands:
         installed_timer_bridges = async_setup_timer_bridge(hass)
         _LOGGER.info(
@@ -101,6 +123,29 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     def async_handle_stop(event: Event) -> None:
         """Cancel waiters when Home Assistant stops."""
         runtime.async_cancel_all()
+        authorizer.clear()
 
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, async_handle_stop)
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up one read-only Google account from a config entry."""
+    try:
+        implementation = (
+            await config_entry_oauth2_flow.async_get_config_entry_implementation(
+                hass, entry
+            )
+        )
+    except config_entry_oauth2_flow.ImplementationUnavailableError as err:
+        raise ConfigEntryNotReady("Google OAuth implementation is unavailable") from err
+    session = config_entry_oauth2_flow.OAuth2Session(hass, entry, implementation)
+    await session.async_ensure_token_valid()
+    hass.data[DATA_GOOGLE_CLIENT] = GoogleReadOnlyClient(hass, session)
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload Google read-only access."""
+    hass.data.pop(DATA_GOOGLE_CLIENT, None)
     return True

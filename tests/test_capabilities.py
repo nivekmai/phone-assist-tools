@@ -3,10 +3,11 @@
 from types import SimpleNamespace
 
 import pytest
+from homeassistant.exceptions import HomeAssistantError
+
 from custom_components.phone_assist_tools import coordinator, llm
 from custom_components.phone_assist_tools.const import COMMAND_ALARM, COMMAND_TIMER
 from custom_components.phone_assist_tools.schema import normalize_media_query
-from homeassistant.exceptions import HomeAssistantError
 
 
 def _hass(

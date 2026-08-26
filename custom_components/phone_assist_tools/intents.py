@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from typing import override
 
+from aiohttp import ClientResponseError
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import intent
 
@@ -17,21 +19,48 @@ from .const import (
     COMMAND_TIMER,
     MEDIA_QUERY,
     MEDIA_TYPE,
+    PERSONAL_DATA_SCOPE_DRIVE,
+    PERSONAL_DATA_SCOPE_GMAIL,
     TIMER_MESSAGE,
     TIMER_SECONDS,
     TIMER_SKIP_UI,
 )
 from .coordinator import async_dispatch_and_wait
+from .google_api import google_api_error_message, google_client_for_context
 from .schema import (
     alarm_parameters,
+    id_parameters,
     media_parameters,
     normalize_media_query,
+    search_parameters,
     timer_parameters,
 )
 
 INTENT_SET_PHONE_ALARM = "SetPhoneAlarm"
 INTENT_SET_PHONE_TIMER = "SetPhoneTimer"
 INTENT_PLAY_PHONE_MEDIA = "PlayPhoneMedia"
+INTENT_SEARCH_GMAIL = "SearchGmail"
+INTENT_READ_GMAIL_MESSAGE = "ReadGmailMessage"
+INTENT_SEARCH_GOOGLE_DRIVE = "SearchGoogleDrive"
+INTENT_READ_GOOGLE_DRIVE_FILE = "ReadGoogleDriveFile"
+
+
+def _personal_client(intent_obj: intent.Intent, scope: str):
+    try:
+        return google_client_for_context(
+            intent_obj.hass,
+            device_id=intent_obj.device_id,
+            context=intent_obj.context,
+            required_scope=scope,
+        )
+    except HomeAssistantError as err:
+        raise intent.IntentHandleError(str(err)) from err
+
+
+def _json_response(intent_obj: intent.Intent, value: object) -> intent.IntentResponse:
+    response = intent_obj.create_response()
+    response.async_set_speech(json.dumps(value, ensure_ascii=False))
+    return response
 
 
 class SetPhoneAlarmIntentHandler(intent.IntentHandler):
@@ -153,3 +182,83 @@ class PlayPhoneMediaIntentHandler(intent.IntentHandler):
         response = intent_obj.create_response()
         response.async_set_speech("Playing on this phone.")
         return response
+
+
+class SearchGmailIntentHandler(intent.IntentHandler):
+    """Compatibility Gmail search tool for pre-platform LLM APIs."""
+
+    intent_type = INTENT_SEARCH_GMAIL
+    description = (
+        "Search Gmail only when this Assist request was authorized by its "
+        "originating phone. This is read-only."
+    )
+    slot_schema = search_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        args = {key: value["value"] for key, value in slots.items()}
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_GMAIL)
+        try:
+            messages = await client.search_gmail(args["query"], args["max_results"])
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, {"messages": messages, "count": len(messages)})
+
+
+class ReadGmailMessageIntentHandler(intent.IntentHandler):
+    """Compatibility Gmail read tool for pre-platform LLM APIs."""
+
+    intent_type = INTENT_READ_GMAIL_MESSAGE
+    description = "Read one Gmail message by an ID returned from SearchGmail."
+    slot_schema = id_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_GMAIL)
+        try:
+            value = await client.read_gmail_message(slots["id"]["value"])
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, value)
+
+
+class SearchGoogleDriveIntentHandler(intent.IntentHandler):
+    """Compatibility Drive search tool for pre-platform LLM APIs."""
+
+    intent_type = INTENT_SEARCH_GOOGLE_DRIVE
+    description = (
+        "Search Google Drive only when this Assist request was authorized by "
+        "its originating phone. This is read-only."
+    )
+    slot_schema = search_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        args = {key: value["value"] for key, value in slots.items()}
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_DRIVE)
+        try:
+            files = await client.search_drive(args["query"], args["max_results"])
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, {"files": files, "count": len(files)})
+
+
+class ReadGoogleDriveFileIntentHandler(intent.IntentHandler):
+    """Compatibility Drive read tool for pre-platform LLM APIs."""
+
+    intent_type = INTENT_READ_GOOGLE_DRIVE_FILE
+    description = "Read bounded text from a Drive file ID returned by SearchGoogleDrive."
+    slot_schema = id_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_DRIVE)
+        try:
+            value = await client.read_drive_file(slots["id"]["value"])
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, value)

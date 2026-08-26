@@ -8,6 +8,7 @@ import voluptuous as vol
 from homeassistant.helpers import config_validation as cv
 
 from .const import MAX_LABEL_LENGTH, MAX_TIMER_SECONDS
+from .google_api import MAX_RESULTS
 
 _GENERIC_MUSIC_QUERIES = frozenset(
     {"music", "my music", "usual music", "my usual music"}
@@ -77,6 +78,23 @@ def normalize_media_query(media_type: str, query: str | None) -> str | None:
     return normalized or None
 
 
+def search_parameters() -> dict:
+    """Return the bounded personal-data search parameter schema."""
+    return {
+        vol.Required("query"): vol.All(cv.string, vol.Strip, vol.Length(min=1, max=500)),
+        vol.Optional("max_results", default=5): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=MAX_RESULTS)
+        ),
+    }
+
+
+def id_parameters() -> dict:
+    """Return a bounded opaque Google resource-ID schema."""
+    return {vol.Required("id"): vol.All(cv.string, vol.Strip, vol.Length(min=1, max=256))}
+
+
 ALARM_PARAMETERS = vol.Schema(alarm_parameters())
 TIMER_PARAMETERS = vol.Schema(timer_parameters())
 MEDIA_PARAMETERS = vol.Schema(media_parameters())
+SEARCH_PARAMETERS = vol.Schema(search_parameters())
+ID_PARAMETERS = vol.Schema(id_parameters())

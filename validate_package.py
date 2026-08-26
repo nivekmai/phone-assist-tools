@@ -11,8 +11,12 @@ COMPONENT = ROOT / "custom_components" / "phone_assist_tools"
 
 REQUIRED_FILES = {
     "__init__.py",
+    "application_credentials.py",
+    "authorization.py",
+    "config_flow.py",
     "const.py",
     "coordinator.py",
+    "google_api.py",
     "intents.py",
     "llm.py",
     "manifest.json",
@@ -64,8 +68,13 @@ def main() -> None:
         raise SystemExit("manifest.json has the wrong domain")
     if not manifest.get("version"):
         raise SystemExit("manifest.json is missing a version")
-    if set(manifest.get("dependencies", [])) != {"intent", "mobile_app"}:
-        raise SystemExit("manifest.json must depend on intent and mobile_app")
+    if not {"application_credentials", "intent", "mobile_app", "websocket_api"}.issubset(
+        manifest.get("dependencies", [])
+    ):
+        raise SystemExit(
+            "manifest.json must depend on application_credentials, intent, "
+            "mobile_app, and websocket_api"
+        )
 
     hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
     if hacs.get("name") != "Phone Assist Tools":

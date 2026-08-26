@@ -2,11 +2,11 @@
   "domain": "phone_assist_tools",
   "name": "Phone Assist Tools",
   "codeowners": ["@nivekmai"],
-  "config_flow": false,
-  "dependencies": ["intent", "mobile_app"],
+  "config_flow": true,
+  "dependencies": ["application_credentials", "intent", "mobile_app", "websocket_api"],
   "documentation": "https://github.com/nivekmai/phone-assist-tools",
   "integration_type": "service",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/nivekmai/phone-assist-tools/issues",
-  "version": "0.4.0"
+  "version": "0.5.0"
 }
