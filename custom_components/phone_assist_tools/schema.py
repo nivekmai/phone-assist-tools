@@ -99,9 +99,83 @@ def id_parameters() -> dict:
     }
 
 
+def gmail_compose_parameters() -> dict:
+    """Return a bounded schema for a new Gmail draft or sent message."""
+    recipients = vol.All(cv.ensure_list, [vol.Email()], vol.Length(min=1, max=10))
+    optional_recipients = vol.All(cv.ensure_list, [vol.Email()], vol.Length(max=10))
+    return {
+        vol.Required("to"): recipients,
+        vol.Optional("cc"): optional_recipients,
+        vol.Optional("bcc"): optional_recipients,
+        vol.Required("subject"): vol.All(
+            _bounded_string(998, allow_empty=True), _single_line
+        ),
+        vol.Required("body"): _bounded_content(20000),
+    }
+
+
+def gmail_modify_parameters() -> dict:
+    """Return a schema for a reversible mailbox action."""
+    return {
+        **id_parameters(),
+        vol.Required("action"): vol.In(
+            ("archive", "mark_read", "mark_unread", "trash")
+        ),
+    }
+
+
+def drive_document_create_parameters() -> dict:
+    """Return a bounded Google Docs create schema."""
+    return {
+        vol.Required("title"): _bounded_string(250),
+        vol.Required("content"): _bounded_content(20000),
+        vol.Optional("parent_id"): _bounded_string(256),
+    }
+
+
+def drive_document_update_parameters() -> dict:
+    """Return a bounded Google Docs content update schema."""
+    return {
+        vol.Required("id"): _bounded_string(256),
+        vol.Required("content"): _bounded_content(20000),
+        vol.Required("mode"): vol.In(("append", "replace")),
+    }
+
+
+def drive_metadata_update_parameters() -> dict:
+    """Return a constrained Drive metadata/move/trash schema."""
+    return vol.All(
+        {
+            vol.Required("id"): _bounded_string(256),
+            vol.Optional("name"): _bounded_string(250),
+            vol.Optional("parent_id"): _bounded_string(256),
+            vol.Optional("trash"): vol.In((True,)),
+        },
+        _require_drive_metadata_change,
+    )
+
+
+def _require_drive_metadata_change(value: dict[str, Any]) -> dict[str, Any]:
+    if not any(key in value for key in ("name", "parent_id", "trash")):
+        raise vol.Invalid("at least one Drive change is required")
+    return value
+
+
 def _bounded_string(max_length: int, *, allow_empty: bool = False):
     minimum = 0 if allow_empty else 1
     return vol.All(cv.string, vol.Strip, vol.Length(min=minimum, max=max_length))
+
+
+def _bounded_content(max_length: int):
+    """Bound user-authored content without changing whitespace."""
+    return vol.All(cv.string, vol.Length(min=0, max=max_length))
+
+
+def _single_line(value: str) -> str:
+    """Reject header injection in mail subjects."""
+    if "\r" in value or "\n" in value:
+        raise vol.Invalid("must be a single line")
+    return value
 
 
 def validate_rfc3339_datetime(value: Any) -> str:
@@ -255,6 +329,11 @@ TIMER_PARAMETERS = vol.Schema(timer_parameters())
 MEDIA_PARAMETERS = vol.Schema(media_parameters())
 SEARCH_PARAMETERS = vol.Schema(search_parameters())
 ID_PARAMETERS = vol.Schema(id_parameters())
+GMAIL_COMPOSE_PARAMETERS = vol.Schema(gmail_compose_parameters())
+GMAIL_MODIFY_PARAMETERS = vol.Schema(gmail_modify_parameters())
+DRIVE_DOCUMENT_CREATE_PARAMETERS = vol.Schema(drive_document_create_parameters())
+DRIVE_DOCUMENT_UPDATE_PARAMETERS = vol.Schema(drive_document_update_parameters())
+DRIVE_METADATA_UPDATE_PARAMETERS = vol.Schema(drive_metadata_update_parameters())
 CALENDAR_LIST_PARAMETERS = vol.Schema(calendar_list_parameters())
 CALENDAR_SEARCH_PARAMETERS = vol.All(
     vol.Schema(calendar_search_parameters()), validate_calendar_search

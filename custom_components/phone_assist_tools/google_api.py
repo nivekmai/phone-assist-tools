@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from collections.abc import Mapping
 from email.header import decode_header, make_header
+from email.message import EmailMessage
 from typing import Any
 from urllib.parse import quote
 
@@ -20,6 +21,7 @@ from homeassistant.util.hass_dict import HassKey
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
 DRIVE_API = "https://www.googleapis.com/drive/v3"
 CALENDAR_API = "https://www.googleapis.com/calendar/v3"
+DOCS_API = "https://docs.googleapis.com/v1"
 MAX_RESULTS = 10
 MAX_CONTENT_CHARS = 12000
 
@@ -119,6 +121,72 @@ class GoogleWorkspaceClient:
         summary["body"] = _gmail_body(message.get("payload"))[:MAX_CONTENT_CHARS]
         return summary
 
+    async def create_gmail_draft(
+        self,
+        *,
+        to: list[str],
+        cc: list[str],
+        bcc: list[str],
+        subject: str,
+        body: str,
+    ) -> dict[str, Any]:
+        """Create a draft without sending it."""
+        result = await self._send_json(
+            "POST",
+            f"{GMAIL_API}/drafts",
+            value={"message": {"raw": _gmail_raw(to, cc, bcc, subject, body)}},
+        )
+        message = result.get("message")
+        return {
+            "draft_id": result.get("id"),
+            "message_id": message.get("id") if isinstance(message, dict) else None,
+            "created": True,
+        }
+
+    async def send_gmail_message(
+        self,
+        *,
+        to: list[str],
+        cc: list[str],
+        bcc: list[str],
+        subject: str,
+        body: str,
+    ) -> dict[str, Any]:
+        """Send one explicitly requested message."""
+        result = await self._send_json(
+            "POST",
+            f"{GMAIL_API}/messages/send",
+            value={"raw": _gmail_raw(to, cc, bcc, subject, body)},
+        )
+        return {
+            "message_id": result.get("id"),
+            "thread_id": result.get("threadId"),
+            "sent": True,
+        }
+
+    async def modify_gmail_message(
+        self, *, message_id: str, action: str
+    ) -> dict[str, Any]:
+        """Apply one reversible mailbox action; never permanently delete mail."""
+        url = f"{GMAIL_API}/messages/{quote(message_id, safe='')}"
+        if action == "trash":
+            result = await self._send_json("POST", f"{url}/trash", value={})
+        else:
+            labels = {
+                "archive": {"removeLabelIds": ["INBOX"]},
+                "mark_read": {"removeLabelIds": ["UNREAD"]},
+                "mark_unread": {"addLabelIds": ["UNREAD"]},
+            }
+            result = await self._send_json(
+                "POST", f"{url}/modify", value=labels[action]
+            )
+        return {
+            "message_id": result.get("id", message_id),
+            "thread_id": result.get("threadId"),
+            "action": action,
+            "success": True,
+        }
+
     async def search_drive(self, query: str, max_results: int) -> list[dict[str, Any]]:
         """Search visible, non-trashed Drive files."""
         escaped = query.replace("\\", "\\\\").replace("'", "\\'")
@@ -166,6 +234,104 @@ class GoogleWorkspaceClient:
                 "Use webViewLink to open it."
             )
         return {**metadata, "content": content}
+
+    async def create_google_document(
+        self, *, title: str, content: str, parent_id: str | None
+    ) -> dict[str, Any]:
+        """Create one Google Doc and optionally move it into a Drive folder."""
+        document = await self._send_json(
+            "POST", f"{DOCS_API}/documents", value={"title": title}
+        )
+        document_id = str(document["documentId"])
+        if content:
+            await self._send_json(
+                "POST",
+                f"{DOCS_API}/documents/{quote(document_id, safe='')}:batchUpdate",
+                value={
+                    "requests": [
+                        {"insertText": {"location": {"index": 1}, "text": content}}
+                    ]
+                },
+            )
+        if parent_id:
+            await self.update_drive_file(
+                file_id=document_id, name=None, parent_id=parent_id, trash=False
+            )
+        return {
+            "document_id": document_id,
+            "title": document.get("title", title),
+            "created": True,
+        }
+
+    async def update_google_document(
+        self, *, document_id: str, content: str, mode: str
+    ) -> dict[str, Any]:
+        """Append to or replace the textual body of one Google Doc."""
+        url = f"{DOCS_API}/documents/{quote(document_id, safe='')}"
+        document = await self._get_json(url)
+        end_index = _document_end_index(document)
+        requests: list[dict[str, Any]] = []
+        insertion_index = max(1, end_index - 1)
+        if mode == "replace" and insertion_index > 1:
+            requests.append(
+                {
+                    "deleteContentRange": {
+                        "range": {"startIndex": 1, "endIndex": insertion_index}
+                    }
+                }
+            )
+            insertion_index = 1
+        if content:
+            requests.append(
+                {
+                    "insertText": {
+                        "location": {"index": insertion_index},
+                        "text": content,
+                    }
+                }
+            )
+        if requests:
+            await self._send_json(
+                "POST", f"{url}:batchUpdate", value={"requests": requests}
+            )
+        return {"document_id": document_id, "mode": mode, "updated": True}
+
+    async def update_drive_file(
+        self,
+        *,
+        file_id: str,
+        name: str | None,
+        parent_id: str | None,
+        trash: bool,
+    ) -> dict[str, Any]:
+        """Rename, move, or trash a file without changing sharing or deleting it."""
+        encoded_id = quote(file_id, safe="")
+        value: dict[str, Any] = {}
+        params: dict[str, str] = {
+            "fields": "id,name,mimeType,trashed,parents,modifiedTime,webViewLink"
+        }
+        if name is not None:
+            value["name"] = name
+        if trash:
+            value["trashed"] = True
+        if parent_id is not None:
+            metadata = await self._get_json(
+                f"{DRIVE_API}/files/{encoded_id}", params={"fields": "parents"}
+            )
+            current_parents = metadata.get("parents")
+            params["addParents"] = parent_id
+            if isinstance(current_parents, list):
+                removable = [
+                    item
+                    for item in current_parents
+                    if isinstance(item, str) and item != parent_id
+                ]
+                if removable:
+                    params["removeParents"] = ",".join(removable)
+        result = await self._send_json(
+            "PATCH", f"{DRIVE_API}/files/{encoded_id}", value=value, params=params
+        )
+        return {**result, "updated": True}
 
     async def list_calendars(self, max_results: int) -> list[dict[str, Any]]:
         """List a bounded set of calendars visible to the authorized account."""
@@ -302,6 +468,35 @@ def _calendar_time(value: str, timezone: str | None) -> dict[str, str]:
     if timezone:
         result["timeZone"] = timezone
     return result
+
+
+def _gmail_raw(
+    to: list[str], cc: list[str], bcc: list[str], subject: str, body: str
+) -> str:
+    """Build a bounded UTF-8 plain-text RFC 5322 message."""
+    message = EmailMessage()
+    message["To"] = ", ".join(to)
+    if cc:
+        message["Cc"] = ", ".join(cc)
+    if bcc:
+        message["Bcc"] = ", ".join(bcc)
+    message["Subject"] = subject
+    message.set_content(body)
+    return base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
+
+
+def _document_end_index(document: Mapping[str, Any]) -> int:
+    """Return the first body tab's terminal index from a Docs response."""
+    body = document.get("body")
+    content = body.get("content") if isinstance(body, dict) else None
+    if not isinstance(content, list):
+        return 1
+    indexes = [
+        item.get("endIndex")
+        for item in content
+        if isinstance(item, dict) and isinstance(item.get("endIndex"), int)
+    ]
+    return max(indexes, default=1)
 
 
 def _decode_header(value: str) -> str:

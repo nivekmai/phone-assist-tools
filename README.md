@@ -16,8 +16,14 @@ It can also provide device-authorized Google Workspace tools:
 
 - `SearchGmail(query, max_results?)`
 - `ReadGmailMessage(id)`
+- `CreateGmailDraft(to, cc?, bcc?, subject, body)`
+- `SendGmailMessage(to, cc?, bcc?, subject, body)`
+- `ModifyGmailMessage(id, action)`
 - `SearchGoogleDrive(query, max_results?)`
 - `ReadGoogleDriveFile(id)`
+- `CreateGoogleDocument(title, content, parent_id?)`
+- `UpdateGoogleDocument(id, content, mode)`
+- `UpdateGoogleDriveFile(id, name?, parent_id?, trash?)`
 - `ListGoogleCalendars(max_results?)`
 - `SearchGoogleCalendarEvents(calendar_id?, time_min, time_max, query?, max_results?)`
 - `ReadGoogleCalendarEvent(calendar_id?, event_id)`
@@ -25,10 +31,14 @@ It can also provide device-authorized Google Workspace tools:
 - `UpdateGoogleCalendarEvent(calendar_id?, event_id, ...)`
 - `DeleteGoogleCalendarEvent(calendar_id?, event_id)`
 
-Google access is optional. Gmail and Drive remain read-only. Calendar access can
-read, create, update, and delete events, but this version cannot add attendees
-or send invitations. OAuth tokens stay in Home Assistant and are never sent to
-the conversation proxy. Only bounded results are returned to the model.
+Google access is optional. Gmail write can create drafts, send messages, and
+archive, mark, or trash an identified message, but cannot permanently delete
+mail or change Gmail settings. Drive/Docs write can create and edit Google Docs
+and rename, move, or trash files, but cannot change sharing or permanently
+delete files. Calendar access can read, create, update, and delete events, but
+cannot add attendees or send invitations. OAuth tokens stay in Home Assistant
+and are never sent to the conversation proxy. Only bounded results are returned
+to the model.
 
 The tools target the Android `mobile_app` device that initiated the Assist
 request. A tool is available only when that exact registration advertises the
@@ -133,7 +143,7 @@ can coexist with this shim's timer implementation during migration.
 ## Connect Gmail, Google Drive, and Google Calendar
 
 1. In Google Cloud, create or select a project and enable the **Gmail API** and
-   **Google Drive API**, and **Google Calendar API**.
+   **Google Drive API**, **Google Docs API**, and **Google Calendar API**.
 2. Configure the OAuth consent screen. While the app remains in testing, add
    your Google account as a test user.
 3. Create an OAuth client of type **Web application**. Use the redirect URL
@@ -143,14 +153,15 @@ can coexist with this shim's timer implementation during migration.
    credentials**, add the Google OAuth client for **Phone Assist Tools**, then
    add the **Phone Assist Tools** integration and complete Google sign-in.
 5. In this Companion build, open **Settings → Companion app → Assist** and
-   enable **Read Gmail**, **Read Google Drive**, and/or **Read and write Google
-   Calendar** on the phone allowed to authorize those tools.
+   enable the desired read and write toggles on the phone allowed to authorize
+   those tools. Read and write access are independent and disabled by default.
 
-The OAuth request is limited to `gmail.readonly`, `drive.readonly`,
-`calendar.events`, and read-only calendar-list access, plus OpenID email
-identity. This version cannot send, delete, archive, upload, edit, or otherwise
-mutate email or Drive content. Calendar writes require an explicit user request;
-the tools cannot add attendees or send invitations.
+The OAuth request uses `gmail.modify`, `drive`, `calendar.events`, and read-only
+calendar-list access, plus OpenID email identity. Phone-signed capability toggles
+apply a second, per-device restriction: a broad Google token alone exposes no
+tools. Gmail and Drive writes require an explicit user request. The integration
+implements no Gmail permanent-delete, Drive permanent-delete, Drive permission,
+or Gmail-settings operation.
 
 ## Capability contract
 
@@ -177,6 +188,8 @@ assist_personal_data_scopes:
   - gmail_readonly
   - drive_readonly
   - calendar_events_readwrite
+  - gmail_write
+  - drive_docs_write
 assist_personal_data_public_key: <base64 DER P-256 public key>
 ```
 
@@ -274,6 +287,11 @@ optional `error` string.
 - Calendar search is capped at 10 events. Create/update/delete tools are exposed
   only in the same phone-signed context and their descriptions require an
   explicit user request for the exact write. Deletion must never be inferred.
+- Gmail sending is separate from drafting and must be explicitly requested.
+  Mailbox changes are limited to archive, mark read/unread, and move to trash;
+  there is no permanent-delete or settings tool.
+- Google Docs body changes support append or replace. Replacement, file moves,
+  and trashing must be explicit. There are no sharing or permanent-delete tools.
 - The acknowledgement action is available to authenticated Home Assistant
   clients. Its unguessable request ID and same-user check prevent accidental
   cross-talk, but this is not cryptographic device attestation.

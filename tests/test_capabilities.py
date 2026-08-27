@@ -11,6 +11,8 @@ from custom_components.phone_assist_tools.const import (
     COMMAND_ALARM,
     COMMAND_TIMER,
     PERSONAL_DATA_SCOPE_CALENDAR,
+    PERSONAL_DATA_SCOPE_DRIVE_WRITE,
+    PERSONAL_DATA_SCOPE_GMAIL_WRITE,
 )
 from custom_components.phone_assist_tools.google_api import DATA_GOOGLE_CLIENT
 from custom_components.phone_assist_tools.schema import normalize_media_query
@@ -257,6 +259,42 @@ def test_calendar_tools_require_phone_signed_calendar_scope(
         "DeleteGoogleCalendarEvent",
     ]
     assert "only after an explicit user request" in result.prompt
+
+
+def test_workspace_write_tools_require_separate_phone_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Gmail and Drive write tools are independently device-gated."""
+    monkeypatch.setattr(llm, "native_mobile_app_commands", frozenset)
+    monkeypatch.setattr(llm, "supports_phone_command", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        llm, "webhook_id_from_device_id", lambda _hass, _device_id: "webhook-1"
+    )
+    authorizer = SimpleNamespace(
+        scopes_for_context=lambda **_kwargs: frozenset(
+            {PERSONAL_DATA_SCOPE_GMAIL_WRITE, PERSONAL_DATA_SCOPE_DRIVE_WRITE}
+        )
+    )
+    hass = SimpleNamespace(
+        data={DATA_GOOGLE_CLIENT: object(), DATA_AUTHORIZER: authorizer}
+    )
+    llm_context = SimpleNamespace(
+        device_id="device-1", context=SimpleNamespace(user_id="user-1")
+    )
+
+    result = llm.async_get_tools(hass, llm_context, "assist")
+
+    assert result is not None
+    assert [tool.name for tool in result.tools] == [
+        "CreateGmailDraft",
+        "SendGmailMessage",
+        "ModifyGmailMessage",
+        "CreateGoogleDocument",
+        "UpdateGoogleDocument",
+        "UpdateGoogleDriveFile",
+    ]
+    assert "Permanent deletion" in result.prompt
+    assert "Sharing changes" in result.prompt
 
 
 def test_native_command_detection_is_concrete_and_independent(

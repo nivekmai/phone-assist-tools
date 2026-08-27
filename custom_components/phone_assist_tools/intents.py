@@ -21,7 +21,9 @@ from .const import (
     MEDIA_TYPE,
     PERSONAL_DATA_SCOPE_CALENDAR,
     PERSONAL_DATA_SCOPE_DRIVE,
+    PERSONAL_DATA_SCOPE_DRIVE_WRITE,
     PERSONAL_DATA_SCOPE_GMAIL,
+    PERSONAL_DATA_SCOPE_GMAIL_WRITE,
     TIMER_MESSAGE,
     TIMER_SECONDS,
     TIMER_SKIP_UI,
@@ -38,6 +40,11 @@ from .schema import (
     calendar_list_parameters,
     calendar_search_parameters,
     calendar_update_parameters,
+    drive_document_create_parameters,
+    drive_document_update_parameters,
+    drive_metadata_update_parameters,
+    gmail_compose_parameters,
+    gmail_modify_parameters,
     id_parameters,
     media_parameters,
     normalize_media_query,
@@ -50,8 +57,14 @@ INTENT_SET_PHONE_TIMER = "SetPhoneTimer"
 INTENT_PLAY_PHONE_MEDIA = "PlayPhoneMedia"
 INTENT_SEARCH_GMAIL = "SearchGmail"
 INTENT_READ_GMAIL_MESSAGE = "ReadGmailMessage"
+INTENT_CREATE_GMAIL_DRAFT = "CreateGmailDraft"
+INTENT_SEND_GMAIL_MESSAGE = "SendGmailMessage"
+INTENT_MODIFY_GMAIL_MESSAGE = "ModifyGmailMessage"
 INTENT_SEARCH_GOOGLE_DRIVE = "SearchGoogleDrive"
 INTENT_READ_GOOGLE_DRIVE_FILE = "ReadGoogleDriveFile"
+INTENT_CREATE_GOOGLE_DOCUMENT = "CreateGoogleDocument"
+INTENT_UPDATE_GOOGLE_DOCUMENT = "UpdateGoogleDocument"
+INTENT_UPDATE_GOOGLE_DRIVE_FILE = "UpdateGoogleDriveFile"
 INTENT_LIST_GOOGLE_CALENDARS = "ListGoogleCalendars"
 INTENT_SEARCH_GOOGLE_CALENDAR_EVENTS = "SearchGoogleCalendarEvents"
 INTENT_READ_GOOGLE_CALENDAR_EVENT = "ReadGoogleCalendarEvent"
@@ -241,6 +254,83 @@ class ReadGmailMessageIntentHandler(intent.IntentHandler):
         return _json_response(intent_obj, value)
 
 
+class CreateGmailDraftIntentHandler(intent.IntentHandler):
+    """Compatibility explicit Gmail draft tool."""
+
+    intent_type = INTENT_CREATE_GMAIL_DRAFT
+    description = "Create an unsent Gmail draft only after an explicit request."
+    slot_schema = gmail_compose_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        args = {key: value["value"] for key, value in slots.items()}
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_GMAIL_WRITE)
+        try:
+            value = await client.create_gmail_draft(
+                to=args["to"],
+                cc=args.get("cc", []),
+                bcc=args.get("bcc", []),
+                subject=args["subject"],
+                body=args["body"],
+            )
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, value)
+
+
+class SendGmailMessageIntentHandler(intent.IntentHandler):
+    """Compatibility explicit Gmail send tool."""
+
+    intent_type = INTENT_SEND_GMAIL_MESSAGE
+    description = (
+        "Send one Gmail message only when explicitly requested; drafting does not "
+        "authorize sending."
+    )
+    slot_schema = gmail_compose_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        args = {key: value["value"] for key, value in slots.items()}
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_GMAIL_WRITE)
+        try:
+            value = await client.send_gmail_message(
+                to=args["to"],
+                cc=args.get("cc", []),
+                bcc=args.get("bcc", []),
+                subject=args["subject"],
+                body=args["body"],
+            )
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, value)
+
+
+class ModifyGmailMessageIntentHandler(intent.IntentHandler):
+    """Compatibility reversible Gmail mailbox action tool."""
+
+    intent_type = INTENT_MODIFY_GMAIL_MESSAGE
+    description = (
+        "Archive, mark read/unread, or trash one identified message after an explicit "
+        "request. This cannot permanently delete mail."
+    )
+    slot_schema = gmail_modify_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        args = {key: value["value"] for key, value in slots.items()}
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_GMAIL_WRITE)
+        try:
+            value = await client.modify_gmail_message(
+                message_id=args["id"], action=args["action"]
+            )
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, value)
+
+
 class SearchGoogleDriveIntentHandler(intent.IntentHandler):
     """Compatibility Drive search tool for pre-platform LLM APIs."""
 
@@ -278,6 +368,79 @@ class ReadGoogleDriveFileIntentHandler(intent.IntentHandler):
         client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_DRIVE)
         try:
             value = await client.read_drive_file(slots["id"]["value"])
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, value)
+
+
+class CreateGoogleDocumentIntentHandler(intent.IntentHandler):
+    """Compatibility explicit Google Doc creation tool."""
+
+    intent_type = INTENT_CREATE_GOOGLE_DOCUMENT
+    description = "Create a Google Doc only after an explicit user request."
+    slot_schema = drive_document_create_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        args = {key: value["value"] for key, value in slots.items()}
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_DRIVE_WRITE)
+        try:
+            value = await client.create_google_document(
+                title=args["title"],
+                content=args["content"],
+                parent_id=args.get("parent_id"),
+            )
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, value)
+
+
+class UpdateGoogleDocumentIntentHandler(intent.IntentHandler):
+    """Compatibility explicit Google Doc body update tool."""
+
+    intent_type = INTENT_UPDATE_GOOGLE_DOCUMENT
+    description = (
+        "Append to or replace one identified Google Doc only after an explicit request."
+    )
+    slot_schema = drive_document_update_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        args = {key: value["value"] for key, value in slots.items()}
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_DRIVE_WRITE)
+        try:
+            value = await client.update_google_document(
+                document_id=args["id"], content=args["content"], mode=args["mode"]
+            )
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, value)
+
+
+class UpdateGoogleDriveFileIntentHandler(intent.IntentHandler):
+    """Compatibility constrained Drive metadata tool."""
+
+    intent_type = INTENT_UPDATE_GOOGLE_DRIVE_FILE
+    description = (
+        "Rename, move, or trash one identified Drive file after an explicit request. "
+        "Sharing changes and permanent deletion are unavailable."
+    )
+    slot_schema = drive_metadata_update_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        args = {key: value["value"] for key, value in slots.items()}
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_DRIVE_WRITE)
+        try:
+            value = await client.update_drive_file(
+                file_id=args["id"],
+                name=args.get("name"),
+                parent_id=args.get("parent_id"),
+                trash=args.get("trash", False),
+            )
         except ClientResponseError as err:
             raise intent.IntentHandleError(google_api_error_message(err)) from err
         return _json_response(intent_obj, value)

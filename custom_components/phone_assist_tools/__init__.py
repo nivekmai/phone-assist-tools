@@ -37,9 +37,12 @@ from .coordinator import (
 )
 from .google_api import DATA_GOOGLE_CLIENT, GoogleWorkspaceClient
 from .intents import (
+    CreateGmailDraftIntentHandler,
     CreateGoogleCalendarEventIntentHandler,
+    CreateGoogleDocumentIntentHandler,
     DeleteGoogleCalendarEventIntentHandler,
     ListGoogleCalendarsIntentHandler,
+    ModifyGmailMessageIntentHandler,
     PlayPhoneMediaIntentHandler,
     ReadGmailMessageIntentHandler,
     ReadGoogleCalendarEventIntentHandler,
@@ -47,9 +50,12 @@ from .intents import (
     SearchGmailIntentHandler,
     SearchGoogleCalendarEventsIntentHandler,
     SearchGoogleDriveIntentHandler,
+    SendGmailMessageIntentHandler,
     SetPhoneAlarmIntentHandler,
     SetPhoneTimerIntentHandler,
     UpdateGoogleCalendarEventIntentHandler,
+    UpdateGoogleDocumentIntentHandler,
+    UpdateGoogleDriveFileIntentHandler,
 )
 from .timers import async_setup_timer_bridge
 
@@ -108,8 +114,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     for personal_handler in (
         SearchGmailIntentHandler(),
         ReadGmailMessageIntentHandler(),
+        CreateGmailDraftIntentHandler(),
+        SendGmailMessageIntentHandler(),
+        ModifyGmailMessageIntentHandler(),
         SearchGoogleDriveIntentHandler(),
         ReadGoogleDriveFileIntentHandler(),
+        CreateGoogleDocumentIntentHandler(),
+        UpdateGoogleDocumentIntentHandler(),
+        UpdateGoogleDriveFileIntentHandler(),
         ListGoogleCalendarsIntentHandler(),
         SearchGoogleCalendarEventsIntentHandler(),
         ReadGoogleCalendarEventIntentHandler(),

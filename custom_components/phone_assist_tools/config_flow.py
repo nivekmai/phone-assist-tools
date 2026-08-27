@@ -19,8 +19,8 @@ from .const import DOMAIN
 OAUTH2_SCOPES = [
     "openid",
     "email",
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/calendar.events",
     "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
 ]

@@ -11,11 +11,15 @@ APP_DATA_PERSONAL_DATA_SCOPES: Final = "assist_personal_data_scopes"
 PERSONAL_DATA_SCOPE_GMAIL: Final = "gmail_readonly"
 PERSONAL_DATA_SCOPE_DRIVE: Final = "drive_readonly"
 PERSONAL_DATA_SCOPE_CALENDAR: Final = "calendar_events_readwrite"
+PERSONAL_DATA_SCOPE_GMAIL_WRITE: Final = "gmail_write"
+PERSONAL_DATA_SCOPE_DRIVE_WRITE: Final = "drive_docs_write"
 SUPPORTED_PERSONAL_DATA_SCOPES: Final = frozenset(
     {
         PERSONAL_DATA_SCOPE_GMAIL,
         PERSONAL_DATA_SCOPE_DRIVE,
         PERSONAL_DATA_SCOPE_CALENDAR,
+        PERSONAL_DATA_SCOPE_GMAIL_WRITE,
+        PERSONAL_DATA_SCOPE_DRIVE_WRITE,
     }
 )
 
