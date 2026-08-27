@@ -19,6 +19,7 @@ from .const import (
     COMMAND_TIMER,
     MEDIA_QUERY,
     MEDIA_TYPE,
+    PERSONAL_DATA_SCOPE_CALENDAR,
     PERSONAL_DATA_SCOPE_DRIVE,
     PERSONAL_DATA_SCOPE_GMAIL,
     TIMER_MESSAGE,
@@ -28,7 +29,15 @@ from .const import (
 from .coordinator import async_dispatch_and_wait
 from .google_api import google_api_error_message, google_client_for_context
 from .schema import (
+    CALENDAR_CREATE_PARAMETERS,
+    CALENDAR_SEARCH_PARAMETERS,
+    CALENDAR_UPDATE_PARAMETERS,
     alarm_parameters,
+    calendar_create_parameters,
+    calendar_event_id_parameters,
+    calendar_list_parameters,
+    calendar_search_parameters,
+    calendar_update_parameters,
     id_parameters,
     media_parameters,
     normalize_media_query,
@@ -43,6 +52,12 @@ INTENT_SEARCH_GMAIL = "SearchGmail"
 INTENT_READ_GMAIL_MESSAGE = "ReadGmailMessage"
 INTENT_SEARCH_GOOGLE_DRIVE = "SearchGoogleDrive"
 INTENT_READ_GOOGLE_DRIVE_FILE = "ReadGoogleDriveFile"
+INTENT_LIST_GOOGLE_CALENDARS = "ListGoogleCalendars"
+INTENT_SEARCH_GOOGLE_CALENDAR_EVENTS = "SearchGoogleCalendarEvents"
+INTENT_READ_GOOGLE_CALENDAR_EVENT = "ReadGoogleCalendarEvent"
+INTENT_CREATE_GOOGLE_CALENDAR_EVENT = "CreateGoogleCalendarEvent"
+INTENT_UPDATE_GOOGLE_CALENDAR_EVENT = "UpdateGoogleCalendarEvent"
+INTENT_DELETE_GOOGLE_CALENDAR_EVENT = "DeleteGoogleCalendarEvent"
 
 
 def _personal_client(intent_obj: intent.Intent, scope: str):
@@ -203,7 +218,9 @@ class SearchGmailIntentHandler(intent.IntentHandler):
             messages = await client.search_gmail(args["query"], args["max_results"])
         except ClientResponseError as err:
             raise intent.IntentHandleError(google_api_error_message(err)) from err
-        return _json_response(intent_obj, {"messages": messages, "count": len(messages)})
+        return _json_response(
+            intent_obj, {"messages": messages, "count": len(messages)}
+        )
 
 
 class ReadGmailMessageIntentHandler(intent.IntentHandler):
@@ -250,7 +267,9 @@ class ReadGoogleDriveFileIntentHandler(intent.IntentHandler):
     """Compatibility Drive read tool for pre-platform LLM APIs."""
 
     intent_type = INTENT_READ_GOOGLE_DRIVE_FILE
-    description = "Read bounded text from a Drive file ID returned by SearchGoogleDrive."
+    description = (
+        "Read bounded text from a Drive file ID returned by SearchGoogleDrive."
+    )
     slot_schema = id_parameters()
 
     @override
@@ -259,6 +278,166 @@ class ReadGoogleDriveFileIntentHandler(intent.IntentHandler):
         client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_DRIVE)
         try:
             value = await client.read_drive_file(slots["id"]["value"])
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, value)
+
+
+class ListGoogleCalendarsIntentHandler(intent.IntentHandler):
+    """Compatibility calendar-list tool for pre-platform LLM APIs."""
+
+    intent_type = INTENT_LIST_GOOGLE_CALENDARS
+    description = "List Google calendars after authorization by the originating phone."
+    slot_schema = calendar_list_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_CALENDAR)
+        try:
+            calendars = await client.list_calendars(slots["max_results"]["value"])
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(
+            intent_obj, {"calendars": calendars, "count": len(calendars)}
+        )
+
+
+class SearchGoogleCalendarEventsIntentHandler(intent.IntentHandler):
+    """Compatibility calendar-event search tool for pre-platform LLM APIs."""
+
+    intent_type = INTENT_SEARCH_GOOGLE_CALENDAR_EVENTS
+    description = (
+        "Search Google Calendar in an explicit bounded time window after "
+        "authorization by the originating phone."
+    )
+    slot_schema = calendar_search_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        args = CALENDAR_SEARCH_PARAMETERS(
+            {key: value["value"] for key, value in slots.items()}
+        )
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_CALENDAR)
+        try:
+            events = await client.search_calendar_events(
+                calendar_id=args["calendar_id"],
+                time_min=args["time_min"],
+                time_max=args["time_max"],
+                query=args.get("query"),
+                max_results=args["max_results"],
+            )
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, {"events": events, "count": len(events)})
+
+
+class ReadGoogleCalendarEventIntentHandler(intent.IntentHandler):
+    """Compatibility single-event read tool for pre-platform LLM APIs."""
+
+    intent_type = INTENT_READ_GOOGLE_CALENDAR_EVENT
+    description = "Read one Google Calendar event returned by calendar search."
+    slot_schema = calendar_event_id_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        args = {key: value["value"] for key, value in slots.items()}
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_CALENDAR)
+        try:
+            value = await client.read_calendar_event(
+                calendar_id=args["calendar_id"], event_id=args["event_id"]
+            )
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, value)
+
+
+class CreateGoogleCalendarEventIntentHandler(intent.IntentHandler):
+    """Compatibility explicit event-creation tool for pre-platform LLM APIs."""
+
+    intent_type = INTENT_CREATE_GOOGLE_CALENDAR_EVENT
+    description = (
+        "Create a Google Calendar event only when the user explicitly requests it. "
+        "Never adds attendees or sends invitations."
+    )
+    slot_schema = calendar_create_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        args = CALENDAR_CREATE_PARAMETERS(
+            {key: value["value"] for key, value in slots.items()}
+        )
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_CALENDAR)
+        try:
+            value = await client.create_calendar_event(
+                calendar_id=args["calendar_id"],
+                title=args["title"],
+                start=args["start"],
+                end=args["end"],
+                timezone=args.get("timezone"),
+                description=args.get("description"),
+                location=args.get("location"),
+            )
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, value)
+
+
+class UpdateGoogleCalendarEventIntentHandler(intent.IntentHandler):
+    """Compatibility explicit event-update tool for pre-platform LLM APIs."""
+
+    intent_type = INTENT_UPDATE_GOOGLE_CALENDAR_EVENT
+    description = (
+        "Update an identified Google Calendar event only when the user explicitly "
+        "requests that exact change."
+    )
+    slot_schema = calendar_update_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        args = CALENDAR_UPDATE_PARAMETERS(
+            {key: value["value"] for key, value in slots.items()}
+        )
+        changes = {
+            key: args[key]
+            for key in ("title", "start", "end", "timezone", "description", "location")
+            if key in args
+        }
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_CALENDAR)
+        try:
+            value = await client.update_calendar_event(
+                calendar_id=args["calendar_id"],
+                event_id=args["event_id"],
+                changes=changes,
+            )
+        except ClientResponseError as err:
+            raise intent.IntentHandleError(google_api_error_message(err)) from err
+        return _json_response(intent_obj, value)
+
+
+class DeleteGoogleCalendarEventIntentHandler(intent.IntentHandler):
+    """Compatibility explicit event-deletion tool for pre-platform LLM APIs."""
+
+    intent_type = INTENT_DELETE_GOOGLE_CALENDAR_EVENT
+    description = (
+        "Permanently delete one identified Google Calendar event only when the user "
+        "clearly requests deletion of that specific event. Never infer deletion."
+    )
+    slot_schema = calendar_event_id_parameters()
+
+    @override
+    async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
+        slots = self.async_validate_slots(intent_obj.slots)
+        args = {key: value["value"] for key, value in slots.items()}
+        client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_CALENDAR)
+        try:
+            value = await client.delete_calendar_event(
+                calendar_id=args["calendar_id"], event_id=args["event_id"]
+            )
         except ClientResponseError as err:
             raise intent.IntentHandleError(google_api_error_message(err)) from err
         return _json_response(intent_obj, value)

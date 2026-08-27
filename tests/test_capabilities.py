@@ -6,7 +6,13 @@ import pytest
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.phone_assist_tools import coordinator, llm
-from custom_components.phone_assist_tools.const import COMMAND_ALARM, COMMAND_TIMER
+from custom_components.phone_assist_tools.authorization import DATA_AUTHORIZER
+from custom_components.phone_assist_tools.const import (
+    COMMAND_ALARM,
+    COMMAND_TIMER,
+    PERSONAL_DATA_SCOPE_CALENDAR,
+)
+from custom_components.phone_assist_tools.google_api import DATA_GOOGLE_CLIENT
 from custom_components.phone_assist_tools.schema import normalize_media_query
 
 
@@ -218,6 +224,39 @@ def test_native_tools_suppress_compatibility_tools(
 
     assert result is not None
     assert [tool.name for tool in result.tools] == ["SetPhoneTimer", "PlayPhoneMedia"]
+
+
+def test_calendar_tools_require_phone_signed_calendar_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Calendar read and write tools appear only in a signed phone context."""
+    monkeypatch.setattr(llm, "native_mobile_app_commands", frozenset)
+    monkeypatch.setattr(llm, "supports_phone_command", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        llm, "webhook_id_from_device_id", lambda _hass, _device_id: "webhook-1"
+    )
+    authorizer = SimpleNamespace(
+        scopes_for_context=lambda **_kwargs: frozenset({PERSONAL_DATA_SCOPE_CALENDAR})
+    )
+    hass = SimpleNamespace(
+        data={DATA_GOOGLE_CLIENT: object(), DATA_AUTHORIZER: authorizer}
+    )
+    llm_context = SimpleNamespace(
+        device_id="device-1", context=SimpleNamespace(user_id="user-1")
+    )
+
+    result = llm.async_get_tools(hass, llm_context, "assist")
+
+    assert result is not None
+    assert [tool.name for tool in result.tools] == [
+        "ListGoogleCalendars",
+        "SearchGoogleCalendarEvents",
+        "ReadGoogleCalendarEvent",
+        "CreateGoogleCalendarEvent",
+        "UpdateGoogleCalendarEvent",
+        "DeleteGoogleCalendarEvent",
+    ]
+    assert "only after an explicit user request" in result.prompt
 
 
 def test_native_command_detection_is_concrete_and_independent(

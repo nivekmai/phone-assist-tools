@@ -1,20 +1,20 @@
 {
   "config": {
     "abort": {
-      "access_not_configured": "Google did not grant the required read-only Gmail and Drive access.",
+      "access_not_configured": "Google did not grant the required Gmail, Drive, and Calendar access.",
       "already_configured": "This Google account is already configured.",
       "oauth_error": "Received an error from Google.",
       "wrong_account": "Signed in with a different Google account."
     },
     "create_entry": {
-      "default": "Google read-only access is connected. Personal-data tools remain unavailable unless an enrolled phone authorizes an Assist request."
+      "default": "Google access is connected. Personal-data and Calendar tools remain unavailable unless an enrolled phone authorizes an Assist request."
     },
     "step": {
       "pick_implementation": {
         "title": "Pick Google application credentials"
       },
       "reauth_confirm": {
-        "title": "Reconnect Google read-only access"
+        "title": "Reconnect Google access"
       }
     }
   }

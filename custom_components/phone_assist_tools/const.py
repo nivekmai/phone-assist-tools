@@ -10,8 +10,13 @@ APP_DATA_PERSONAL_DATA_PUBLIC_KEY: Final = "assist_personal_data_public_key"
 APP_DATA_PERSONAL_DATA_SCOPES: Final = "assist_personal_data_scopes"
 PERSONAL_DATA_SCOPE_GMAIL: Final = "gmail_readonly"
 PERSONAL_DATA_SCOPE_DRIVE: Final = "drive_readonly"
+PERSONAL_DATA_SCOPE_CALENDAR: Final = "calendar_events_readwrite"
 SUPPORTED_PERSONAL_DATA_SCOPES: Final = frozenset(
-    {PERSONAL_DATA_SCOPE_GMAIL, PERSONAL_DATA_SCOPE_DRIVE}
+    {
+        PERSONAL_DATA_SCOPE_GMAIL,
+        PERSONAL_DATA_SCOPE_DRIVE,
+        PERSONAL_DATA_SCOPE_CALENDAR,
+    }
 )
 
 WS_CHALLENGE: Final = "phone_assist_tools/personal_data/challenge"

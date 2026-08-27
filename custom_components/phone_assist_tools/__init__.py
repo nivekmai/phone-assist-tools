@@ -35,15 +35,21 @@ from .coordinator import (
     PhoneAssistToolsRuntime,
     native_mobile_app_commands,
 )
-from .google_api import DATA_GOOGLE_CLIENT, GoogleReadOnlyClient
+from .google_api import DATA_GOOGLE_CLIENT, GoogleWorkspaceClient
 from .intents import (
+    CreateGoogleCalendarEventIntentHandler,
+    DeleteGoogleCalendarEventIntentHandler,
+    ListGoogleCalendarsIntentHandler,
     PlayPhoneMediaIntentHandler,
     ReadGmailMessageIntentHandler,
+    ReadGoogleCalendarEventIntentHandler,
     ReadGoogleDriveFileIntentHandler,
     SearchGmailIntentHandler,
+    SearchGoogleCalendarEventsIntentHandler,
     SearchGoogleDriveIntentHandler,
     SetPhoneAlarmIntentHandler,
     SetPhoneTimerIntentHandler,
+    UpdateGoogleCalendarEventIntentHandler,
 )
 from .timers import async_setup_timer_bridge
 
@@ -104,6 +110,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         ReadGmailMessageIntentHandler(),
         SearchGoogleDriveIntentHandler(),
         ReadGoogleDriveFileIntentHandler(),
+        ListGoogleCalendarsIntentHandler(),
+        SearchGoogleCalendarEventsIntentHandler(),
+        ReadGoogleCalendarEventIntentHandler(),
+        CreateGoogleCalendarEventIntentHandler(),
+        UpdateGoogleCalendarEventIntentHandler(),
+        DeleteGoogleCalendarEventIntentHandler(),
     ):
         intent.async_register(hass, personal_handler)
     if COMMAND_TIMER not in native_commands:
@@ -130,7 +142,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up one read-only Google account from a config entry."""
+    """Set up one gated Google Workspace account from a config entry."""
     try:
         implementation = (
             await config_entry_oauth2_flow.async_get_config_entry_implementation(
@@ -141,11 +153,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise ConfigEntryNotReady("Google OAuth implementation is unavailable") from err
     session = config_entry_oauth2_flow.OAuth2Session(hass, entry, implementation)
     await session.async_ensure_token_valid()
-    hass.data[DATA_GOOGLE_CLIENT] = GoogleReadOnlyClient(hass, session)
+    hass.data[DATA_GOOGLE_CLIENT] = GoogleWorkspaceClient(hass, session)
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload Google read-only access."""
+    """Unload Google Workspace access."""
     hass.data.pop(DATA_GOOGLE_CLIENT, None)
     return True

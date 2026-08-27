@@ -1,4 +1,4 @@
-"""Bounded read-only Gmail and Google Drive API client."""
+"""Bounded Google Workspace client for phone-authorized Assist tools."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import base64
 from collections.abc import Mapping
 from email.header import decode_header, make_header
 from typing import Any
+from urllib.parse import quote
 
 from aiohttp import ClientResponseError
 from homeassistant.components.mobile_app.util import webhook_id_from_device_id
@@ -18,13 +19,14 @@ from homeassistant.util.hass_dict import HassKey
 
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
 DRIVE_API = "https://www.googleapis.com/drive/v3"
+CALENDAR_API = "https://www.googleapis.com/calendar/v3"
 MAX_RESULTS = 10
 MAX_CONTENT_CHARS = 12000
 
-DATA_GOOGLE_CLIENT: HassKey[GoogleReadOnlyClient]
+DATA_GOOGLE_CLIENT: HassKey[GoogleWorkspaceClient]
 
 
-class GoogleReadOnlyClient:
+class GoogleWorkspaceClient:
     """Call only read endpoints and cap every result returned to an LLM."""
 
     def __init__(self, hass: HomeAssistant, oauth_session: OAuth2Session) -> None:
@@ -42,6 +44,33 @@ class GoogleReadOnlyClient:
             response.raise_for_status()
             value = await response.json()
         return value if isinstance(value, dict) else {}
+
+    async def _send_json(
+        self,
+        method: str,
+        url: str,
+        *,
+        value: Mapping[str, Any],
+        params: Mapping[str, str | int] | None = None,
+    ) -> dict[str, Any]:
+        await self._oauth_session.async_ensure_token_valid()
+        headers = {
+            "Authorization": f"Bearer {self._oauth_session.token[CONF_ACCESS_TOKEN]}"
+        }
+        async with self._session.request(
+            method, url, headers=headers, params=params, json=value
+        ) as response:
+            response.raise_for_status()
+            result = await response.json()
+        return result if isinstance(result, dict) else {}
+
+    async def _delete(self, url: str) -> None:
+        await self._oauth_session.async_ensure_token_valid()
+        headers = {
+            "Authorization": f"Bearer {self._oauth_session.token[CONF_ACCESS_TOKEN]}"
+        }
+        async with self._session.delete(url, headers=headers) as response:
+            response.raise_for_status()
 
     async def _get_text(
         self, url: str, *, params: Mapping[str, str | int] | None = None
@@ -138,6 +167,142 @@ class GoogleReadOnlyClient:
             )
         return {**metadata, "content": content}
 
+    async def list_calendars(self, max_results: int) -> list[dict[str, Any]]:
+        """List a bounded set of calendars visible to the authorized account."""
+        result = await self._get_json(
+            f"{CALENDAR_API}/users/me/calendarList",
+            params={
+                "maxResults": min(max(max_results, 1), MAX_RESULTS),
+                "fields": (
+                    "items(id,summary,description,primary,accessRole,timeZone,"
+                    "backgroundColor,foregroundColor)"
+                ),
+            },
+        )
+        calendars = result.get("items")
+        return calendars[:MAX_RESULTS] if isinstance(calendars, list) else []
+
+    async def search_calendar_events(
+        self,
+        *,
+        calendar_id: str,
+        time_min: str,
+        time_max: str,
+        query: str | None,
+        max_results: int,
+    ) -> list[dict[str, Any]]:
+        """List events in one bounded time window, optionally filtering by text."""
+        params: dict[str, str | int] = {
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "maxResults": min(max(max_results, 1), MAX_RESULTS),
+            "fields": (
+                "items(id,status,summary,description,location,start,end,htmlLink,"
+                "organizer(displayName,email),attendees(displayName,email,"
+                "responseStatus,self),recurringEventId)"
+            ),
+        }
+        if query:
+            params["q"] = query
+        result = await self._get_json(
+            f"{CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events",
+            params=params,
+        )
+        events = result.get("items")
+        return events[:MAX_RESULTS] if isinstance(events, list) else []
+
+    async def read_calendar_event(
+        self, *, calendar_id: str, event_id: str
+    ) -> dict[str, Any]:
+        """Read one calendar event by an ID returned from event search."""
+        return await self._get_json(
+            f"{CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events/"
+            f"{quote(event_id, safe='')}",
+            params={
+                "fields": (
+                    "id,status,summary,description,location,start,end,htmlLink,"
+                    "creator(displayName,email),organizer(displayName,email),"
+                    "attendees(displayName,email,responseStatus,self),recurrence,"
+                    "recurringEventId,created,updated"
+                )
+            },
+        )
+
+    async def create_calendar_event(
+        self,
+        *,
+        calendar_id: str,
+        title: str,
+        start: str,
+        end: str,
+        timezone: str | None,
+        description: str | None,
+        location: str | None,
+    ) -> dict[str, Any]:
+        """Create one event without attendees or conference side effects."""
+        value: dict[str, Any] = {
+            "summary": title,
+            "start": _calendar_time(start, timezone),
+            "end": _calendar_time(end, timezone),
+        }
+        if description is not None:
+            value["description"] = description
+        if location is not None:
+            value["location"] = location
+        return await self._send_json(
+            "POST",
+            f"{CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events",
+            value=value,
+        )
+
+    async def update_calendar_event(
+        self,
+        *,
+        calendar_id: str,
+        event_id: str,
+        changes: Mapping[str, str],
+    ) -> dict[str, Any]:
+        """Patch only explicitly supplied fields on one event."""
+        value: dict[str, Any] = {}
+        if "title" in changes:
+            value["summary"] = changes["title"]
+        if "description" in changes:
+            value["description"] = changes["description"]
+        if "location" in changes:
+            value["location"] = changes["location"]
+        if "start" in changes:
+            timezone = changes.get("timezone")
+            value["start"] = _calendar_time(changes["start"], timezone)
+            value["end"] = _calendar_time(changes["end"], timezone)
+        return await self._send_json(
+            "PATCH",
+            f"{CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events/"
+            f"{quote(event_id, safe='')}",
+            value=value,
+        )
+
+    async def delete_calendar_event(
+        self, *, calendar_id: str, event_id: str
+    ) -> dict[str, Any]:
+        """Delete one explicitly identified calendar event."""
+        await self._delete(
+            f"{CALENDAR_API}/calendars/{quote(calendar_id, safe='')}/events/"
+            f"{quote(event_id, safe='')}"
+        )
+        return {"deleted": True, "calendar_id": calendar_id, "event_id": event_id}
+
+
+def _calendar_time(value: str, timezone: str | None) -> dict[str, str]:
+    """Build a Google Calendar date or dateTime object from validated input."""
+    if len(value) == 10:
+        return {"date": value}
+    result = {"dateTime": value}
+    if timezone:
+        result["timeZone"] = timezone
+    return result
+
 
 def _decode_header(value: str) -> str:
     try:
@@ -201,7 +366,7 @@ def google_client_for_context(
     device_id: str | None,
     context: Context | None,
     required_scope: str,
-) -> GoogleReadOnlyClient:
+) -> GoogleWorkspaceClient:
     """Recheck a device-signed context grant before every Google operation."""
     from .authorization import DATA_AUTHORIZER
 
@@ -220,7 +385,7 @@ def google_client_for_context(
     try:
         return hass.data[DATA_GOOGLE_CLIENT]
     except KeyError as err:
-        raise HomeAssistantError("Google read-only access is not configured") from err
+        raise HomeAssistantError("Google access is not configured") from err
 
 
-DATA_GOOGLE_CLIENT = HassKey("phone_assist_tools.google_readonly_client")
+DATA_GOOGLE_CLIENT = HassKey("phone_assist_tools.google_workspace_client")
