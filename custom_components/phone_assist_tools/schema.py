@@ -144,18 +144,16 @@ def drive_document_update_parameters() -> dict:
 
 def drive_metadata_update_parameters() -> dict:
     """Return a constrained Drive metadata/move/trash schema."""
-    return vol.All(
-        {
-            vol.Required("id"): _bounded_string(256),
-            vol.Optional("name"): _bounded_string(250),
-            vol.Optional("parent_id"): _bounded_string(256),
-            vol.Optional("trash"): vol.In((True,)),
-        },
-        _require_drive_metadata_change,
-    )
+    return {
+        vol.Required("id"): _bounded_string(256),
+        vol.Optional("name"): _bounded_string(250),
+        vol.Optional("parent_id"): _bounded_string(256),
+        vol.Optional("trash"): vol.In((True,)),
+    }
 
 
-def _require_drive_metadata_change(value: dict[str, Any]) -> dict[str, Any]:
+def validate_drive_metadata_update(value: dict[str, Any]) -> dict[str, Any]:
+    """Require at least one constrained Drive change."""
     if not any(key in value for key in ("name", "parent_id", "trash")):
         raise vol.Invalid("at least one Drive change is required")
     return value
@@ -333,7 +331,9 @@ GMAIL_COMPOSE_PARAMETERS = vol.Schema(gmail_compose_parameters())
 GMAIL_MODIFY_PARAMETERS = vol.Schema(gmail_modify_parameters())
 DRIVE_DOCUMENT_CREATE_PARAMETERS = vol.Schema(drive_document_create_parameters())
 DRIVE_DOCUMENT_UPDATE_PARAMETERS = vol.Schema(drive_document_update_parameters())
-DRIVE_METADATA_UPDATE_PARAMETERS = vol.Schema(drive_metadata_update_parameters())
+DRIVE_METADATA_UPDATE_PARAMETERS = vol.All(
+    vol.Schema(drive_metadata_update_parameters()), validate_drive_metadata_update
+)
 CALENDAR_LIST_PARAMETERS = vol.Schema(calendar_list_parameters())
 CALENDAR_SEARCH_PARAMETERS = vol.All(
     vol.Schema(calendar_search_parameters()), validate_calendar_search

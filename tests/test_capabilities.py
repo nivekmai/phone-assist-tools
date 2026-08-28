@@ -1,11 +1,13 @@
 """Tests for custom-integration capability and migration guards."""
 
+from collections.abc import Mapping
 from types import SimpleNamespace
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import intent
 
-from custom_components.phone_assist_tools import coordinator, llm
+from custom_components.phone_assist_tools import coordinator, intents, llm
 from custom_components.phone_assist_tools.authorization import DATA_AUTHORIZER
 from custom_components.phone_assist_tools.const import (
     COMMAND_ALARM,
@@ -35,6 +37,21 @@ def _hass(
     return SimpleNamespace(
         data={"mobile_app": {"config_entries": {"webhook-1": entry}}}
     )
+
+
+def test_legacy_intent_slot_schemas_are_mappings() -> None:
+    """Core 2026.7 expands every registered intent schema as a mapping."""
+    handler_classes = [
+        value
+        for value in vars(intents).values()
+        if isinstance(value, type)
+        and issubclass(value, intent.IntentHandler)
+        and value is not intent.IntentHandler
+    ]
+
+    assert handler_classes
+    for handler_class in handler_classes:
+        assert isinstance(handler_class.slot_schema, Mapping), handler_class.__name__
 
 
 @pytest.mark.parametrize(

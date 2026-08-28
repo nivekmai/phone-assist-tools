@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import override
 
+import voluptuous as vol
 from aiohttp import ClientResponseError
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import intent
@@ -50,6 +51,7 @@ from .schema import (
     normalize_media_query,
     search_parameters,
     timer_parameters,
+    validate_drive_metadata_update,
 )
 
 INTENT_SET_PHONE_ALARM = "SetPhoneAlarm"
@@ -433,6 +435,10 @@ class UpdateGoogleDriveFileIntentHandler(intent.IntentHandler):
     async def async_handle(self, intent_obj: intent.Intent) -> intent.IntentResponse:
         slots = self.async_validate_slots(intent_obj.slots)
         args = {key: value["value"] for key, value in slots.items()}
+        try:
+            validate_drive_metadata_update(args)
+        except vol.Invalid as err:
+            raise intent.IntentHandleError(str(err)) from err
         client = _personal_client(intent_obj, PERSONAL_DATA_SCOPE_DRIVE_WRITE)
         try:
             value = await client.update_drive_file(
