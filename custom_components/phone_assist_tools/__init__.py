@@ -13,7 +13,6 @@ from homeassistant.helpers import config_entry_oauth2_flow, intent
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
-from .assist_pipeline import async_setup_push_to_talk_websocket
 from .authorization import (
     DATA_AUTHORIZER,
     PersonalDataAuthorizer,
@@ -82,7 +81,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     authorizer = PersonalDataAuthorizer()
     hass.data[DATA_AUTHORIZER] = authorizer
     async_setup_websocket_api(hass, authorizer)
-    async_setup_push_to_talk_websocket(hass)
 
     @callback
     def async_handle_acknowledgement(call: ServiceCall) -> None:
