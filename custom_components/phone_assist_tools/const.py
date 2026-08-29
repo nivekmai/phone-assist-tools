@@ -25,6 +25,7 @@ SUPPORTED_PERSONAL_DATA_SCOPES: Final = frozenset(
 
 WS_CHALLENGE: Final = "phone_assist_tools/personal_data/challenge"
 WS_AUTHORIZE: Final = "phone_assist_tools/personal_data/authorize"
+WS_PUSH_TO_TALK_PIPELINE: Final = "phone_assist_tools/assist_pipeline/run"
 CHALLENGE_TTL_SECONDS: Final = 30.0
 PENDING_GRANT_TTL_SECONDS: Final = 20.0
 ACTIVE_GRANT_TTL_SECONDS: Final = 300.0

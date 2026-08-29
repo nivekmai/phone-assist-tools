@@ -3,6 +3,12 @@
 Experimental Home Assistant custom integration for the matching experimental
 Home Assistant Android Companion build.
 
+When that build is selected as Android's system assistant, a long press of the
+Power button can operate as push-to-talk: recording starts with the assistant,
+server-side end-of-speech detection is disabled for that request, and releasing
+Power finalizes the buffered audio. Servers without this integration retain the
+normal Assist silence-detection behavior.
+
 The matching Companion APK is published from the
 [nivekmai/android releases](https://github.com/nivekmai/android/releases) page.
 
