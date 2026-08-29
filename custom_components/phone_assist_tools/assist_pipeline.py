@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import voluptuous as vol
@@ -10,6 +11,8 @@ from homeassistant.components.assist_pipeline.websocket_api import websocket_run
 from homeassistant.core import HomeAssistant, callback
 
 from .const import WS_CAPABILITIES, WS_PUSH_TO_TALK_PIPELINE
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @callback
@@ -23,6 +26,7 @@ def async_setup_push_to_talk_websocket(hass: HomeAssistant) -> None:
         connection: websocket_api.ActiveConnection,
         msg: dict[str, Any],
     ) -> None:
+        _LOGGER.warning("AssistPTT diagnostic: capability endpoint requested")
         connection.send_result(msg["id"], {"push_to_talk_pipeline": True})
 
     @websocket_api.websocket_command(
@@ -43,6 +47,11 @@ def async_setup_push_to_talk_websocket(hass: HomeAssistant) -> None:
         connection: websocket_api.ActiveConnection,
         msg: dict[str, Any],
     ) -> None:
+        _LOGGER.warning(
+            "AssistPTT diagnostic: no-VAD pipeline requested (start=%s, end=%s)",
+            msg.get("start_stage"),
+            msg.get("end_stage"),
+        )
         forwarded = dict(msg)
         forwarded["type"] = "assist_pipeline/run"
         forwarded["input"] = {**msg["input"], "no_vad": True}
