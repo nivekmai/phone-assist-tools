@@ -26,7 +26,9 @@ SUPPORTED_PERSONAL_DATA_SCOPES: Final = frozenset(
 WS_CHALLENGE: Final = "phone_assist_tools/personal_data/challenge"
 WS_AUTHORIZE: Final = "phone_assist_tools/personal_data/authorize"
 CHALLENGE_TTL_SECONDS: Final = 30.0
-PENDING_GRANT_TTL_SECONDS: Final = 20.0
+# Voice grants are created before recording and STT begin. Leave enough time for a
+# deliberate utterance and a busy local STT engine while keeping the grant one-use.
+PENDING_GRANT_TTL_SECONDS: Final = 180.0
 ACTIVE_GRANT_TTL_SECONDS: Final = 300.0
 MAX_PUBLIC_KEY_LENGTH: Final = 1024
 MAX_SIGNATURE_LENGTH: Final = 1024

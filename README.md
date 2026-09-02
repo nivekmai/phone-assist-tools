@@ -72,7 +72,7 @@ For personal data, the matching app performs this handshake:
 Companion registers a non-exportable Android Keystore public key and enabled scopes
   -> server issues a fresh random challenge over the authenticated WebSocket
   -> phone signs challenge + mobile_app webhook ID
-  -> server verifies the signature and creates a one-use 20-second grant
+  -> server verifies the signature and creates a one-use 3-minute grant
   -> first matching Assist context consumes and binds the grant for that pipeline
   -> only that context receives the selected Gmail/Drive/Calendar tools
 ```

@@ -72,3 +72,30 @@ def test_invalid_signature_consumes_challenge_without_grant() -> None:
     )
     assert not authorizer.pending
     assert challenge_id not in authorizer.challenges
+
+
+def test_pending_grant_survives_slow_voice_pipeline(monkeypatch) -> None:
+    """A signed grant remains pending while recording and local STT complete."""
+    now = 1000.0
+    monkeypatch.setattr(
+        "custom_components.phone_assist_tools.authorization.monotonic", lambda: now
+    )
+    authorizer = PersonalDataAuthorizer()
+    identity, private_key = _identity()
+    challenge_id, nonce = authorizer.issue_challenge("webhook-1", identity)
+    payload = canonical_challenge(
+        challenge_id=challenge_id, nonce=nonce, webhook_id="webhook-1"
+    )
+    signature = private_key.sign(payload, ec.ECDSA(hashes.SHA256()))
+    assert authorizer.authorize(
+        challenge_id=challenge_id,
+        webhook_id="webhook-1",
+        identity=identity,
+        signature_b64=base64.b64encode(signature).decode(),
+    )
+
+    now += 120
+    assert authorizer.scopes_for_context(
+        context=SimpleNamespace(id="context-1", user_id="user-1"),
+        device_webhook_id="webhook-1",
+    ) == frozenset({"gmail_readonly"})
